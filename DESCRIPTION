@@ -1,0 +1,9 @@
+Package: Kaggle.PKG.Aviation
+Title: "Helper functions for the Reducing Commercial Aviation Fatalities" competition.
+Version: 0.1
+Authors@R: person("Zach", "Schuster", email = "ztschuster@gmail.com",
+                  role = c("aut", "cre"))
+Description: What the package does (one paragraph)
+Depends: R (>= 3.1.0)
+License: What license is it under?
+LazyData: true
