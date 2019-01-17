@@ -1,0 +1,87 @@
+---
+title: "Reducing Commercial Aviation Fatalities"
+author: "Zach Schuster"
+date: "January 16, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(xgboost)
+library(data.table)
+```
+
+
+First, read in the data
+
+```{r}
+
+readAndSplit(path = "data/train.csv",
+             target_name = "event",
+             name = "train")
+
+# x_train = fread("data/train.csv")
+
+```
+
+
+for now, remove the experiment as the test set has a totally different experiment!
+
+```{r}
+x_train[, experiment := NULL]
+
+```
+
+
+coerce proper variables to categorical
+```{r}
+x_train = coerceClass(x_train, c("crew", "seat"), fun = as.factor)
+
+```
+
+
+
+perform one hot encoding
+```{r}
+char_vars = names(x_train)[sapply(x_train, is.factor)]
+x_train = x_train[, (char_vars) := lapply(.SD, oneHot), .SDcols = char_vars]
+
+```
+
+
+
+
+create a test/validation set for hyperparamter tuning
+```{r}
+train_ind = sample.int(n = nrow(x_train), size = .7 * nrow(x_train),
+                       replace = FALSE)
+# val_ind = setdiff(1:nrow(x_train), train_ind)
+
+train_small = xgb.DMatrix(data.matrix(x_train[train_ind]),
+                          label = multiCodeVars(y_train[train_ind]$event))
+
+val = xgb.DMatrix(data.matrix(x_train[!train_ind]),
+                  label = multiCodeVars(y_train[!train_ind]$event))
+
+
+```
+
+
+train xgboost model
+
+```{r}
+xgb_trained = xgboost(data = train_small,
+                      nround = 2,
+                      params = list(obj = "multi:softprob"))
+
+
+```
+
+
+predict on validation data
+
+```{r}
+probs = predict(xgb_trained, val)
+
+```
+

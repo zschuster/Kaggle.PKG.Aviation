@@ -4,11 +4,11 @@
 
 readAndSplit = function(path, target_name, name = "train"){
   
-  file = fread(path)
+  file = data.table::fread(path)
   
   # if it is the test set, keep the id column in the response portion
   if (name == "test"){
-    assign(x = "x_test",
+  assign(x = "x_test",
            file[, !c(target_name, 'id'), with = FALSE],
            envir = parent.frame())
     assign("y_test",
@@ -30,14 +30,32 @@ readAndSplit = function(path, target_name, name = "train"){
 
 coerceClass = function(data, columns, fun = "as.factor", ...){
   
-  stopifnot(is.data.table(data))
+  stopifnot(data.table::is.data.table(data))
   
+  data = data.table::copy(data)
   func = match.fun(fun)
   
   for(name in columns){
-    set(
+    data.table::set(
       data, j = name, value = func(data[[name]])
       )
   }
+  
+  return(data)
 
+}
+
+multiCodeVars = function(fac){
+  
+  stopifnot(is.factor(fac) || is.character(fac))
+  
+  fac = as.factor(fac)
+  levs = levels(fac)
+  vec = integer(length(fac))
+  
+  for (i in seq_along(levs)) {
+    vec[which(fac == levs[i])] = i - 1
+  }
+  
+  return(vec)
 }
