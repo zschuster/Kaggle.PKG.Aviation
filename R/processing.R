@@ -45,6 +45,7 @@ coerceClass = function(data, columns, fun = "as.factor", ...){
 
 }
 
+
 multiCodeVars = function(fac){
   
   stopifnot(is.factor(fac) || is.character(fac))
