@@ -42,10 +42,12 @@ x_train = coerceClass(x_train, c("crew", "seat"), fun = as.factor)
 
 
 
-perform one hot encoding
+Code nominal variables to start at 0 instead of 1.
+
 ```{r}
 char_vars = names(x_train)[sapply(x_train, is.factor)]
-x_train = x_train[, (char_vars) := lapply(.SD, oneHot), .SDcols = char_vars]
+x_train = x_train[, (char_vars) := lapply(.SD, multiCodeVars),
+                  .SDcols = char_vars]
 
 ```
 
@@ -100,6 +102,84 @@ predict on validation data
 ```{r}
 probs = predict(xgb_trained, val)
 probs = matrix(probs, ncol = nclass, byrow = TRUE)
+colnames(probs) = 1:nclass - 1
 
+# create vector of class labels to calculate multi class log loss
+val_labels = multiCodeVars(y_train[!train_ind]$event)
+
+
+#calculate multi class log loss
+MLmetrics::MultiLogLoss(y_pred = probs,
+                        y_true = val_labels)
+
+```
+
+
+***
+
+Now that the optimal parameters have been chosen, retrain the model on the entire training dataset.
+
+```{r}
+full_train = xgb.DMatrix(data.matrix(x_train),
+                         label = multiCodeVars(y_train$event))
+
+full_params = list("nthreads" = 4,
+                  objective = "multi:softprob",
+                  "eval_metric" = "mlogloss",
+                  "num_class" = nclass)
+
+full_model = xgb.train(data = full_train,
+                        nround = 20,
+                        params = full_params)
+
+# remove unneeded objects for space
+rm(list = ls()[!ls() %in% c("full_model", "full_params")])
+```
+
+***
+
+Now that the model has been trained, read in the test data and predict on test.
+
+```{r process test data}
+
+test = fread("data/test.csv")
+```
+
+
+We will initialize a data.table to store our predictions
+```{r}
+test_preds = test[, "id"]
+```
+
+
+```{r }
+# get rid of experiment column
+test[, experiment := NULL]
+
+# coerce classes to factor to code them properly
+test = coerceClass(test, c("crew", "seat"), fun = as.factor)
+
+# code nominal variables to start at 0
+char_vars = names(test)[sapply(test, is.factor)]
+test = test[, (char_vars) := lapply(.SD, multiCodeVars),
+                  .SDcols = char_vars]
+
+
+# convert test to a xgb.Dmatrix
+test = xgb.DMatrix(data = data.matrix(test[, !"id"]))
+```
+
+Finally predict on the test set and create predictions file.
+
+```{r}
+probs = formatXgbProbs(full_model, newdat = test)
+
+test_results = setDT(cbind(test_preds, probs))
+```
+
+Write predictions to disk to be submitted
+
+```{r}
+fwrite(x = test_results, "data/test_results.csv")
 ```
 

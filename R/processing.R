@@ -8,11 +8,11 @@ readAndSplit = function(path, target_name, name = "train"){
   
   # if it is the test set, keep the id column in the response portion
   if (name == "test"){
-  assign(x = "x_test",
-           file[, !c(target_name, 'id'), with = FALSE],
+    assign("x_test",
+           file[, !'id', with = FALSE],
            envir = parent.frame())
     assign("y_test",
-           file[, c("id", target_name), with = FALSE],
+           file[, "id", with = FALSE],
            envir = parent.frame())
   }
   
@@ -59,3 +59,38 @@ multiCodeVars = function(fac){
   
   return(vec)
 }
+
+
+# format multiclass predictions from xgboost model
+
+formatXgbProbs = function(xgbMod, newdat, classes = LETTERS[1:4]){
+  
+  # error checking
+  stopifnot(inherits(newdat, "xgb.DMatrix"))
+  
+  # get predictions from model on new data
+  probs = predict(xgbMod, newdat)
+  
+  # create a matrix of predictions
+  prob_mat = matrix(probs, ncol = length(classes), byrow = TRUE)
+  colnames(prob_mat) = classes
+  
+  return(prob_mat)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
