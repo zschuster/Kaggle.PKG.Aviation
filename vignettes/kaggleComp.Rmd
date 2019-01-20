@@ -7,6 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+devtools::load_all()
 require(xgboost)
 library(data.table)
 ```
@@ -69,10 +70,26 @@ val = xgb.DMatrix(data.matrix(x_train[!train_ind]),
 
 train xgboost model
 
+should run hyperparameter tunings on 
+eta
+gamma
+max_depth
+
+
 ```{r}
-xgb_trained = xgboost(data = train_small,
-                      nround = 2,
-                      params = list(obj = "multi:softprob"))
+
+nclass = length(unique(y_train$event))
+
+# define parameters of the model
+xgb_params = list("nthreads" = 4,
+                  objective = "multi:softprob",
+                  "eval_metric" = "mlogloss",
+                  "num_class" = nclass)
+
+xgb_trained = xgb.train(data = train_small,
+                        nround = 20,
+                        params = xgb_params,
+                        prediction = TRUE)
 
 
 ```
@@ -82,6 +99,7 @@ predict on validation data
 
 ```{r}
 probs = predict(xgb_trained, val)
+probs = matrix(probs, ncol = nclass, byrow = TRUE)
 
 ```
 
