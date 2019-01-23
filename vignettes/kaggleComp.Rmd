@@ -54,8 +54,10 @@ x_train = x_train[, (char_vars) := lapply(.SD, multiCodeVars),
 
 
 
-create a test/validation set for hyperparamter tuning
+create xgb.DMatrix for tuning
 ```{r}
+
+
 train_ind = sample.int(n = nrow(x_train), size = .7 * nrow(x_train),
                        replace = FALSE)
 # val_ind = setdiff(1:nrow(x_train), train_ind)
@@ -66,53 +68,96 @@ train_small = xgb.DMatrix(data.matrix(x_train[train_ind]),
 val = xgb.DMatrix(data.matrix(x_train[!train_ind]),
                   label = multiCodeVars(y_train[!train_ind]$event))
 
-
 ```
 
 
 train xgboost model
 
-should run hyperparameter tunings on 
-eta
-gamma
-max_depth
+### Hyperparameter Tuning
 
+create tuning grid
 
 ```{r}
-
-nclass = length(unique(y_train$event))
-
-# define parameters of the model
-xgb_params = list("nthreads" = 4,
-                  objective = "multi:softprob",
-                  "eval_metric" = "mlogloss",
-                  "num_class" = nclass)
-
-xgb_trained = xgb.train(data = train_small,
-                        nround = 20,
-                        params = xgb_params,
-                        prediction = TRUE)
-
-
+tuneGrid = expand.grid(
+  list(
+    eta = c(.01, .03, .08),
+    gamma = c(0, .2),
+    max_depth = c(6, 20),
+    nrounds = c(8, 20)
+  )
+)
 ```
 
-
-predict on validation data
+Run models for each parameter combination
 
 ```{r}
-probs = predict(xgb_trained, val)
-probs = matrix(probs, ncol = nclass, byrow = TRUE)
-colnames(probs) = 1:nclass - 1
+nclass = length(unique(y_train$event))
 
 # create vector of class labels to calculate multi class log loss
 val_labels = multiCodeVars(y_train[!train_ind]$event)
 
 
-#calculate multi class log loss
-MLmetrics::MultiLogLoss(y_pred = probs,
+tuning = lapply(seq_len(nrow(tuneGrid)), function(i){
+  
+  # create list of parameters
+  params = list(
+    "eta" = tuneGrid$eta[i],
+    "objective" = "multi:softprob",
+    "eval_metric" = "mlogloss",
+    "num_class" = nclass,
+    "gamma" = tuneGrid$gamma[i],
+    "max_depth" = tuneGrid$max_depth[i]
+  )
+  
+  # train model
+  model = xgb.train(
+    data = train_small,
+    params = params,
+    nrounds = tuneGrid$nrounds[i]
+    )
+  
+  # make predictions
+  preds = formatXgbProbs(model, newdat = val)
+  
+  # status update
+  print(i)
+
+  # return results from this iteration of 
+  return(
+    data.table(
+    eta = tuneGrid$eta[i],
+    gamma = tuneGrid$gamma[i],
+    max_depth = tuneGrid$max_depth[i],
+    nrounds = tuneGrid$nrounds[i],
+    mLogLoss = MLmetrics::MultiLogLoss(y_pred = preds,
                         y_true = val_labels)
+    )
+  )
+  
+})
+
+# combine list of results to find the best paramaters
+results = data.table::rbindlist(tuning)
+
+# order by performance
+results = results[order(mLogLoss)]
+
+# write results to disk
+data.table::fwrite(results, "data/modeling_results.csv")
+
+# get best tune
+best_tune = results[1]
+```
+
+
+Here, we can further tune the model, but for now let's make another prediction to
+submit to kaggle.
+
+```{r}
 
 ```
+
+We are able to see that deeper trees with more iterations do better, and increasing the minimum split loss gives a slight edge. 
 
 
 ***
@@ -123,14 +168,18 @@ Now that the optimal parameters have been chosen, retrain the model on the entir
 full_train = xgb.DMatrix(data.matrix(x_train),
                          label = multiCodeVars(y_train$event))
 
-full_params = list("nthreads" = 4,
-                  objective = "multi:softprob",
-                  "eval_metric" = "mlogloss",
-                  "num_class" = nclass)
-
+full_params = list(
+  "objective" = "multi:softprob",
+  "eval_metric" = "mlogloss",
+  "num_class" = nclass,
+  "eta" = best_tune$eta,
+  "gamma" = best_tune$gamma,
+  "max_depth" = best_tune$max_depth
+  )
+  
 full_model = xgb.train(data = full_train,
-                        nround = 20,
-                        params = full_params)
+                       nround = best_tune$nrounds,
+                       params = full_params)
 
 # remove unneeded objects for space
 rm(list = ls()[!ls() %in% c("full_model", "full_params")])
