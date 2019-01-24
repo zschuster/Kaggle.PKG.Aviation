@@ -57,16 +57,50 @@ x_train = x_train[, (char_vars) := lapply(.SD, multiCodeVars),
 create xgb.DMatrix for tuning
 ```{r}
 
-
-train_ind = sample.int(n = nrow(x_train), size = .7 * nrow(x_train),
+train_ind = sample.int(n = nrow(x_train), size = .6 * nrow(x_train),
                        replace = FALSE)
 # val_ind = setdiff(1:nrow(x_train), train_ind)
 
-train_small = xgb.DMatrix(data.matrix(x_train[train_ind]),
-                          label = multiCodeVars(y_train[train_ind]$event))
+# for xgboost
 
-val = xgb.DMatrix(data.matrix(x_train[!train_ind]),
-                  label = multiCodeVars(y_train[!train_ind]$event))
+# train_small = xgb.DMatrix(data.matrix(x_train[train_ind]),
+#                           label = multiCodeVars(y_train[train_ind]$event))
+# 
+# val = xgb.DMatrix(data.matrix(x_train[!train_ind]),
+#                   label = multiCodeVars(y_train[!train_ind]$event))
+```
+
+```{r }
+
+# for random forest
+
+train_small = x_train[train_ind]
+
+y_train_small = y_train[train_ind]$event
+
+val = x_train[!train_ind]
+
+y_val =y_train[!train_ind]$event
+
+# for space, remove x_train and y_train
+rm(x_train, y_train)
+```
+
+
+Fit random forest model on train_small
+
+```{r}
+
+rf = randomForest::randomForest(x = train_small,
+                                y = as.factor(y_train_small),
+                                ntree = 100,
+                                importance = TRUE)
+```
+
+
+Fit svm
+
+```{r}
 
 ```
 
@@ -80,10 +114,13 @@ create tuning grid
 ```{r}
 tuneGrid = expand.grid(
   list(
-    eta = c(.01, .03, .08),
+    eta = c(.2),
     gamma = c(0, .2),
-    max_depth = c(6, 20),
-    nrounds = c(8, 20)
+    max_depth = c(3, 10),
+    subsample = c(.5, .8),
+    colsample_bytree = c(.5, .9),
+    alpha = c(0, .3),
+    min_child_weight = c(.8, 1.5)
   )
 )
 ```
@@ -106,21 +143,25 @@ tuning = lapply(seq_len(nrow(tuneGrid)), function(i){
     "eval_metric" = "mlogloss",
     "num_class" = nclass,
     "gamma" = tuneGrid$gamma[i],
-    "max_depth" = tuneGrid$max_depth[i]
+    "max_depth" = tuneGrid$max_depth[i],
+    "subsample" = tuneGrid$subsample[i],
+    "colsample_bytree" = tuneGrid$colsample_bytree[i],
+    "alpha" = tuneGrid$alpha[i],
+    "min_child_weight" = tuneGrid$min_child_weight[i]
   )
   
   # train model
   model = xgb.train(
     data = train_small,
     params = params,
-    nrounds = tuneGrid$nrounds[i]
+    nrounds = 10
     )
   
   # make predictions
   preds = formatXgbProbs(model, newdat = val)
   
   # status update
-  print(i)
+  cat(paste(i, "out of", nrow(tuneGrid), "models complete.\n"))
 
   # return results from this iteration of 
   return(
@@ -128,7 +169,10 @@ tuning = lapply(seq_len(nrow(tuneGrid)), function(i){
     eta = tuneGrid$eta[i],
     gamma = tuneGrid$gamma[i],
     max_depth = tuneGrid$max_depth[i],
-    nrounds = tuneGrid$nrounds[i],
+    subsample = tuneGrid$subsample[i],
+    colsample_bytree = tuneGrid$colsample_bytree[i],
+    alpha = tuneGrid$alpha[i],
+    min_child_weight = tuneGrid$min_child_weight[i],
     mLogLoss = MLmetrics::MultiLogLoss(y_pred = preds,
                         y_true = val_labels)
     )
@@ -144,6 +188,7 @@ results = results[order(mLogLoss)]
 
 # write results to disk
 data.table::fwrite(results, "data/modeling_results.csv")
+
 
 # get best tune
 best_tune = results[1]
@@ -174,15 +219,16 @@ full_params = list(
   "num_class" = nclass,
   "eta" = best_tune$eta,
   "gamma" = best_tune$gamma,
-  "max_depth" = best_tune$max_depth
+  "max_depth" = best_tune$max_depth,
+  "tree_method" = "exact"
   )
   
 full_model = xgb.train(data = full_train,
-                       nround = best_tune$nrounds,
+                       nrounds = 15,
                        params = full_params)
 
 # remove unneeded objects for space
-rm(list = ls()[!ls() %in% c("full_model", "full_params")])
+rm(list = ls()[!ls() %in% c("full_model", "full_params", "best_tune")])
 ```
 
 ***
