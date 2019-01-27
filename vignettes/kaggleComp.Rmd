@@ -26,81 +26,104 @@ readAndSplit(path = "data/train.csv",
 ```
 
 
-for now, remove the experiment as the test set has a totally different experiment!
+for now, run cleaning on our training set so we can replicate it on our validation set.
 
 ```{r}
-x_train[, experiment := NULL]
-
-```
-
-
-coerce proper variables to categorical
-```{r}
-x_train = coerceClass(x_train, c("crew", "seat"), fun = as.factor)
-
-```
-
-
-
-Code nominal variables to start at 0 instead of 1.
-
-```{r}
-char_vars = names(x_train)[sapply(x_train, is.factor)]
-x_train = x_train[, (char_vars) := lapply(.SD, multiCodeVars),
-                  .SDcols = char_vars]
-
-```
-
-
-
-
-create xgb.DMatrix for tuning
-```{r}
-
+set.seed(0127)
 train_ind = sample.int(n = nrow(x_train), size = .6 * nrow(x_train),
                        replace = FALSE)
-# val_ind = setdiff(1:nrow(x_train), train_ind)
-
-# for xgboost
-
-# train_small = xgb.DMatrix(data.matrix(x_train[train_ind]),
-#                           label = multiCodeVars(y_train[train_ind]$event))
-# 
-# val = xgb.DMatrix(data.matrix(x_train[!train_ind]),
-#                   label = multiCodeVars(y_train[!train_ind]$event))
-```
-
-```{r }
-
-# for random forest
 
 train_small = x_train[train_ind]
+y_train_small = y_train[train_ind]
 
-y_train_small = y_train[train_ind]$event
+train = processTrainData(data = train_small,
+                         y = y_train_small)
+
+rm(train_small)
+rm(y_train_small)
+
+```
+
+To properly train our model, we should remove any extreme outliers in our data set. We will use 4 standard deviations for this metric. 
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+create xgb.DMatrix for training
+```{r}
+# for xgboost
+# y_train_small = y_train[train_ind]
+train_small = xgboost::xgb.DMatrix(data.matrix(train$x_train),
+                                   label = multiCodeVars(train$y_train$event))
+
+```
+
+
+Create simple xgboost model
+
+```{r}
+
+nclass = 4
+
+train_params = list(
+  "objective" = "multi:softprob",
+  "eval_metric" = "mlogloss",
+  "num_class" = nclass
+  )
+
+set.seed(0127)
+xgb_train = xgboost::xgb.train(data = train_small,
+                               nround = 20,
+                               params = train_params)
+
+```
+
+
+Process our validation set
+
+```{r}
 
 val = x_train[!train_ind]
 
-y_val =y_train[!train_ind]$event
+val = processTestData(val, lda_mod = train$lda_mod,
+                      lda_cols = train$lda_cols)
 
-# for space, remove x_train and y_train
-rm(x_train, y_train)
+val = xgboost::xgb.DMatrix(data.matrix(val))
+
+# make predictions
+preds = formatXgbProbs(xgb_train, newdat = val)
+
+# check logloss
+MLmetrics::MultiLogLoss(preds,
+                        multiCodeVars(y_train[!train_ind]$event)
+                        )
+
 ```
 
+***
 
-Fit random forest model on train_small
-
-```{r}
-
-rf = randomForest::randomForest(x = train_small,
-                                y = as.factor(y_train_small),
-                                ntree = 100,
-                                importance = TRUE)
-```
-
-
-Fit svm
+Now we can process the entire training set
 
 ```{r}
+readAndSplit(path = "data/train.csv",
+             target_name = "event",
+             name = "train")
+
+
+train = processTrainData(data = x_train,
+                         y = y_train)
+
+rm(x_train)
+rm(y_train)
 
 ```
 
@@ -111,13 +134,12 @@ train xgboost model
 
 create tuning grid
 
-```{r}
+```{r, eval = FALSE}
 tuneGrid = expand.grid(
   list(
     eta = c(.2),
     gamma = c(0, .2),
     max_depth = c(3, 10),
-    subsample = c(.5, .8),
     colsample_bytree = c(.5, .9),
     alpha = c(0, .3),
     min_child_weight = c(.8, 1.5)
@@ -127,7 +149,7 @@ tuneGrid = expand.grid(
 
 Run models for each parameter combination
 
-```{r}
+```{r, eval = FALSE}
 nclass = length(unique(y_train$event))
 
 # create vector of class labels to calculate multi class log loss

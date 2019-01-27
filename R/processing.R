@@ -79,7 +79,94 @@ formatXgbProbs = function(xgbMod, newdat, classes = LETTERS[1:4]){
 }
 
 
+processTrainData = function(data, y){
+  
+  stopifnot(is.data.table(data))
+  stopifnot(nrow(data) == nrow(y))
+  
+  dat = data.table::copy(data)
+  
+  dat[, experiment := NULL]
+  
+  # coerce proper variables to categorical
+  dat = coerceClass(dat, c("crew", "seat"),
+                        fun = as.factor)
+  
+  # get the numeric columns (exluding time)
+  cols = names(dat)[vapply(dat, is.numeric,
+                               FUN.VALUE = logical(1))]
+  
+  # remove time 
+  cols = cols[cols != "time"]
+  
+  # calculate vector of lower and upper bounds for each numeric column
+  lb = vapply(dat[, ..cols], function(x) mean(x) - 6*sd(x),
+              FUN.VALUE = numeric(1))
+  ub = vapply(dat[, ..cols], function(x) mean(x) + 6*sd(x),
+              FUN.VALUE = numeric(1))
+  
+  # get index of observations to remove
+  ind = apply(dat[, ..cols], 1, function(x){
+    return(!any(x < lb | x > ub))
+  })
+  
+  # remove rows containing outliers
+  dat = dat[ind]
+  y = y[ind]
+  
+  # now put time back into cols
+  cols = c(cols, "time")
+  
+  # run LDA on numeric columns
+  lda = MASS::lda(dat[, ..cols],
+                  grouping = as.factor(y$event))
+  
+  # fit lda to training data
+  preds = predict(lda, dat[, ..cols])
+  
+  # assign predictions to dat
+  dat = cbind(dat, preds$posterior)
+  
+  # code variables to be numeric
+  char_vars = names(dat)[sapply(dat, is.factor)]
+  dat = dat[, (char_vars) := lapply(.SD, multiCodeVars),
+                            .SDcols = char_vars]
+  
+  
+  # return processed data and lda model
+  return(
+    list(x_train = dat,
+         y_train = y,
+         lda_mod = lda,
+         lda_cols = cols)
+  )
+  
+}
 
+processTestData = function(data, lda_model, lda_cols){
+  
+  dat = data.table::copy(data)
+  data.table::setDT(dat)
+  
+  # get rid of experiment column
+  dat$experiment = NULL
+  
+  # coerce classes to factor to code them properly
+  dat = coerceClass(dat, c("crew", "seat"), fun = as.factor)
+  
+  # make predictions using lda
+  preds = predict(lda_model, dat[, ..lda_cols])$posterior
+  
+  # bind predictions to test data
+  dat = cbind(dat, preds)
+  
+  # code nominal variables to start at 0
+  char_vars = names(dat)[sapply(dat, is.factor)]
+  dat = dat[, (char_vars) := lapply(.SD, multiCodeVars),
+              .SDcols = char_vars]
+  
+  return(dat)
+}
 
 
 
