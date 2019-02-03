@@ -1,0 +1,17 @@
+Package: Kaggle.PKG.Aviation
+Title: "Helper functions for the Reducing Commercial Aviation Fatalities" competition
+Version: 0.1
+Authors@R: person("Zach", "Schuster", email = "ztschuster@gmail.com",
+                  role = c("aut", "cre"))
+Description: Supporting functions for the 'Reducing Commercial Airlines
+    Fatalities' Kaggle Competition.
+Depends: R (>= 3.4.0)
+License: MIT
+LazyData: true
+Imports: 
+    data.table,
+    xgboost
+RoxygenNote: 6.1.1
+Encoding: UTF-8
+Suggests: 
+    testthat
